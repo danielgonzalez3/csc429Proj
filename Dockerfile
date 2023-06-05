@@ -9,4 +9,3 @@ WORKDIR /var/lib/model
 
 COPY . /var/lib/model
 
-# Add any additional commands as needed
