@@ -34,9 +34,12 @@ BASEDIR_GTSB = "./gtsb-german-traffic-sign"
 RBF_LAMBDA = 0.5
 
 # Open the zip file
-with zipfile.ZipFile(GTSB_ZIP_PATH, 'r') as zip_ref:
-    # Extract all the contents of the zip file
-    zip_ref.extractall("./gtsb-german-traffic-sign")
+if len(os.listdir(BASEDIR_GTSB)) == 0:
+    with zipfile.ZipFile(GTSB_ZIP_PATH, 'r') as zip_ref:
+        zip_ref.extractall(BASEDIR_GTSB)
+        print("ZIP file extracted successfully.")
+else:
+    print("The extraction path is not empty. Skipping the extraction.")
 
 ##############################################
 # Define RBF layers and SoftML Loss function #

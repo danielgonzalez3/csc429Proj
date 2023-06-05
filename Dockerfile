@@ -9,3 +9,6 @@ WORKDIR /var/lib/model
 
 COPY . /var/lib/model
 
+RUN pip3 install -r trial_1/requirements.txt
+
+CMD python3 trial_1/trial_1.py
