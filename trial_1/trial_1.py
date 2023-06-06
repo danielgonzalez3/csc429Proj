@@ -1,4 +1,5 @@
 import os
+import zipfile
 import sklearn
 import cv2
 import keras
@@ -9,7 +10,8 @@ from keras.callbacks import ModelCheckpoint, LearningRateScheduler, ReduceLROnPl
 import numpy as np
 import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
-from keras.engine.base_layer import Layer
+# from keras.engine.base_layer import Layer
+from keras.layers import Layer
 from scipy import stats
 from art.estimators.classification import KerasClassifier
 from art.defences.detector.poison import ActivationDefence
@@ -28,12 +30,12 @@ DATASET_GTSB = "./gtsb-german-traffic-sign" # the location of the German Traffic
 RBF_LAMBDA = 0.5
 
 # Open the zip file
-if len(os.listdir(BASEDIR_GTSB)) == 0:
-    with zipfile.ZipFile(GTSB_ZIP_PATH, 'r') as zip_ref:
-        zip_ref.extractall(BASEDIR_GTSB)
-        print("ZIP file extracted successfully.")
-else:
-    print("The extraction path is not empty. Skipping the extraction.")
+# if len(os.listdir(BASEDIR_GTSB)) == 0:
+#     with zipfile.ZipFile(GTSB_ZIP_PATH, 'r') as zip_ref:
+#         zip_ref.extractall(BASEDIR_GTSB)
+#         print("ZIP file extracted successfully.")
+# else:
+#     print("The extraction path is not empty. Skipping the extraction.")
 
 ##############################################
 # Define RBF layers and SoftML Loss function #
