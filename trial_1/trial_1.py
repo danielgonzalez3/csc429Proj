@@ -1,36 +1,30 @@
-import zipfile
 import os
-from art.utils import load_mnist
+import sklearn
 import cv2
 import keras
 import keras.backend as K
-from keras.models import Model,load_model
-from keras.layers import Dense, Dropout, Activation, Flatten, BatchNormalization,Lambda
-from keras.layers import Conv2D, MaxPooling2D,Input,AveragePooling2D
-from keras.models import Sequential
-from keras.callbacks import ModelCheckpoint, LearningRateScheduler, TensorBoard, EarlyStopping, History,ReduceLROnPlateau
-from keras.initializers import Initializer
+from keras.models import Model, load_model, Sequential
+from keras.layers import Dense, Activation, Flatten, BatchNormalization, Conv2D, MaxPooling2D, Input, AveragePooling2D
+from keras.callbacks import ModelCheckpoint, LearningRateScheduler, ReduceLROnPlateau
 import numpy as np
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 from keras.engine.base_layer import Layer
-from keras.initializers import RandomUniform, Initializer, Constant
 from scipy import stats
-from art.classifiers import KerasClassifier
-from art.utils import load_mnist, preprocess
-from art.poison_detection import ActivationDefence
+from art.estimators.classification import KerasClassifier
+from art.defences.detector.poison import ActivationDefence
+from art.utils import load_mnist
 from keras.preprocessing.image import ImageDataGenerator
-from keras.models import load_model
-from keras import losses
-from sklearn.preprocessing import OneHotEncoder
 from matplotlib import pyplot as plt
-from sklearn.metrics import classification_report
-from keras.layers import Conv2D,BatchNormalization,Activation
 from keras.regularizers import l2
 from skimage import io, transform
 import random
 
 GTSB_ZIP_PATH = "./gtsb-german-traffic-sign.zip"
-BASEDIR_GTSB = "./gtsb-german-traffic-sign"
+BASEDIR_GTSB = "./German_Traffic_Results" # where you want to save all your results
+BASEDIR_MNIST = "./MNIST_Results" # where you want to save the MNIST poisoning results
+DATASET_GTSB = "./gtsb-german-traffic-sign" # the location of the German Traffic Sign folder in your Colab run-time (probably don't need to change this)
+
 RBF_LAMBDA = 0.5
 
 # Open the zip file
@@ -115,6 +109,7 @@ def RBF_Loss(y_true,y_pred):
     y = K.sum(d + S)
     return y
 
+@tf.function
 def RBF_Soft_Loss(y_true,y_pred):
     lam = RBF_LAMBDA
     indices = softargmax(y_true)
@@ -449,103 +444,103 @@ def PoisonMNIST(X,Y,p):
 
 
 def PoisonGTSB(X,Y,targetLabel=5,p=.05):
-  np.random.seed(1234)
-  idxs = np.where(np.argmax(Y,axis=1)!=targetLabel)[0]
-  total_target = np.sum(np.argmax(Y,axis=1)==targetLabel)
-  num_poison = int(len(idxs)*p)
-  print('Poisoning sample size:',num_poison)
-  print('Percentage of training data:', float(num_poison)/Y.shape[0])
-  idxs_sample = np.random.choice(idxs,num_poison,replace=False)
-  poison_x = np.copy(X)
-  poison_y = np.copy(Y)
-  labels = np.argmax(poison_y,axis=1)
-  clean_x = X[idxs_sample]
-  clean_y = Y[idxs_sample]
-  coordinates = np.random.randint(0,31,(len(idxs_sample),2))
-  for i in range(coordinates.shape[0]):
-    x = coordinates[i,0]
-    y = coordinates[i,1]
-    y1 = y+2
-    x1 = x+2
-    poison_x[idxs_sample[i],x:x1,y:y1,0:2] = 1
-    poison_x[idxs_sample[i],x:x1,y:y1,2] = 0
-    labels[idxs_sample[i]] = targetLabel
-  poison_y = keras.utils.to_categorical(labels,43)
-  return poison_x,poison_y,clean_x,clean_y,poison_x[idxs_sample],poison_y[idxs_sample],idxs_sample
+    np.random.seed(1234)
+    idxs = np.where(np.argmax(Y,axis=1)!=targetLabel)[0]
+    total_target = np.sum(np.argmax(Y,axis=1)==targetLabel)
+    num_poison = int(len(idxs)*p)
+    print('Poisoning sample size:',num_poison)
+    print('Percentage of training data:', float(num_poison)/Y.shape[0])
+    idxs_sample = np.random.choice(idxs,num_poison,replace=False)
+    poison_x = np.copy(X)
+    poison_y = np.copy(Y)
+    labels = np.argmax(poison_y,axis=1)
+    clean_x = X[idxs_sample]
+    clean_y = Y[idxs_sample]
+    coordinates = np.random.randint(0,31,(len(idxs_sample),2))
+    for i in range(coordinates.shape[0]):
+        x = coordinates[i,0]
+        y = coordinates[i,1]
+        y1 = y+2
+        x1 = x+2
+        poison_x[idxs_sample[i],x:x1,y:y1,0:2] = 1
+        poison_x[idxs_sample[i],x:x1,y:y1,2] = 0
+        labels[idxs_sample[i]] = targetLabel
+    poison_y = keras.utils.to_categorical(labels,43)
+    return poison_x,poison_y,clean_x,clean_y,poison_x[idxs_sample],poison_y[idxs_sample],idxs_sample
 
 def detect_clean_data(prediction, poison_idx, x_poison,y_poison,a):
-  confidence = prediction[np.arange(prediction.shape[0]),np.argmax(y_poison,axis=1)]
-  tp = fp = 0
-  total_poison = len(poison_idx)
-  total_normal = y_poison.shape[0] - len(poison_idx)
-  total = 0
-  irq = stats.iqr(confidence)
-  q3 = np.quantile(confidence, 0.75)
-  thresh = q3 + a*irq
-  thresh = a
-  idx_dirty = np.where(confidence >= thresh)[0]
-  for j in range(len(idx_dirty)):
-      if idx_dirty[j] in poison_idx:
-          tp += 1.0
-  fn = len(poison_idx) - tp
-  fp = len(idx_dirty) - tp
-  tn = len(y_poison) - tp - fp - fn
-  return tp,fp,tn,fn
+    confidence = prediction[np.arange(prediction.shape[0]),np.argmax(y_poison,axis=1)]
+    tp = fp = 0
+    total_poison = len(poison_idx)
+    total_normal = y_poison.shape[0] - len(poison_idx)
+    total = 0
+    irq = stats.iqr(confidence)
+    q3 = np.quantile(confidence, 0.75)
+    thresh = q3 + a*irq
+    thresh = a
+    idx_dirty = np.where(confidence >= thresh)[0]
+    for j in range(len(idx_dirty)):
+        if idx_dirty[j] in poison_idx:
+            tp += 1.0
+    fn = len(poison_idx) - tp
+    fp = len(idx_dirty) - tp
+    tn = len(y_poison) - tp - fp - fn
+    return tp,fp,tn,fn
 
 #########################################################
 # German Traffic Sign Benmchark (GTSB) Poisoning Attack #
 #########################################################
 def load_split(basePath, csvPath):
-  data = []
-  labels = []
-  rows = open(csvPath).read().strip().split("\n")[1:]
-  #random.shuffle(rows)
-  for (i, row) in enumerate(rows):
-    # check to see if we should show a status update
-    if i > 0 and i % 1000 == 0:
-      print("[INFO] processed {} total images".format(i))
+    data = []
+    labels = []
+    rows = open(csvPath).read().strip().split("\n")[1:]
+    #random.shuffle(rows)
+    for (i, row) in enumerate(rows):
+        # check to see if we should show a status update
+        if i > 0 and i % 1000 == 0:
+            print("[INFO] processed {} total images".format(i))
 
-    # split the row into components and then grab the class ID
-    # and image path
-    (label, imagePath) = row.strip().split(",")[-2:]
+        # split the row into components and then grab the class ID
+        # and image path
+        (label, imagePath) = row.strip().split(",")[-2:]
 
-    # derive the full path to the image file and load it
-    imagePath = os.path.sep.join([basePath, imagePath])
-    image = io.imread(imagePath)
-    # resize the image to be 32x32 pixels, ignoring aspect ratio, out-of-distribution
-    # and then perform Contrast Limited Adaptive Histogram
-    # Equalization (CLAHE)
-    image = transform.resize(image, (32, 32))
-    #image = exposure.equalize_adapthist(image, clip_limit=0.1)
+        # derive the full path to the image file and load it
+        imagePath = os.path.sep.join([basePath, imagePath])
+        image = io.imread(imagePath)
+        # resize the image to be 32x32 pixels, ignoring aspect ratio, out-of-distribution
+        # and then perform Contrast Limited Adaptive Histogram
+        # Equalization (CLAHE)
+        image = transform.resize(image, (32, 32))
+        #image = exposure.equalize_adapthist(image, clip_limit=0.1)
 
-    # update the list of data and labels, respectively
-    data.append(image)
-    labels.append(int(label))
-  # convert the data and labels to NumPy arrays
-  data = np.array(data)
-  labels = np.array(labels)
-  # return a tuple of the data and labels
-  return (data, labels)
+        # update the list of data and labels, respectively
+        data.append(image)
+        labels.append(int(label))
+    # convert the data and labels to NumPy arrays
+    data = np.array(data)
+    labels = np.array(labels)
+    # return a tuple of the data and labels
+    return (data, labels)
 
 # derive the path to the training and testing CSV files
-trainPath = os.path.join(BASEDIR_GTSB, "Train.csv")
-testPath = os.path.join(BASEDIR_GTSB, "Test.csv")
+trainPath = os.path.join(DATASET_GTSB, "Train.csv")
+testPath = os.path.join(DATASET_GTSB, "Test.csv")
 if not os.path.isfile(os.path.join(BASEDIR_GTSB,'x_train.npy')):
-  # load the training and testing data
-  print("[INFO] loading training and testing data...")
-  (trainX, trainY) = load_split(BASEDIR_GTSB, trainPath)
-  (testX, testY) = load_split(BASEDIR_GTSB, testPath)
-  trainX = trainX.astype("float32") / 255.0
-  testX = testX.astype("float32") / 255.0
-  np.save(os.path.join(BASEDIR_GTSB,'x_train.npy'),trainX)
-  np.save(os.path.join(BASEDIR_GTSB,'y_train.npy'),trainY)
-  np.save(os.path.join(BASEDIR_GTSB,'x_test.npy'),testX)
-  np.save(os.path.join(BASEDIR_GTSB,'y_test.npy'),testY) 
+    # load the training and testing data
+    print("[INFO] loading training and testing data...")
+    (trainX, trainY) = load_split(DATASET_GTSB, trainPath)
+    (testX, testY) = load_split(DATASET_GTSB, testPath)
+    trainX = trainX.astype("float32") / 255.0
+    testX = testX.astype("float32") / 255.0
+    np.save(os.path.join(BASEDIR_GTSB,'x_train.npy'),trainX)
+    np.save(os.path.join(BASEDIR_GTSB,'y_train.npy'),trainY)
+    np.save(os.path.join(BASEDIR_GTSB,'x_test.npy'),testX)
+    np.save(os.path.join(BASEDIR_GTSB,'y_test.npy'),testY) 
 else:
-  trainX = np.load(os.path.join(BASEDIR_GTSB,'x_train.npy'))*255
-  trainY = np.load(os.path.join(BASEDIR_GTSB,'y_train.npy'))
-  testX = np.load(os.path.join(BASEDIR_GTSB,'x_test.npy'))*255
-  testY = np.load(os.path.join(BASEDIR_GTSB,'y_test.npy')) 
+    trainX = np.load(os.path.join(BASEDIR_GTSB,'x_train.npy'))*255
+    trainY = np.load(os.path.join(BASEDIR_GTSB,'y_train.npy'))
+    testX = np.load(os.path.join(BASEDIR_GTSB,'x_test.npy'))*255
+    testY = np.load(os.path.join(BASEDIR_GTSB,'y_test.npy')) 
 # one-hot encode the training and testing labels
 numLabels = len(np.unique(trainY))
 trainY = keras.utils.to_categorical(trainY, numLabels)
@@ -573,23 +568,23 @@ plt.savefig('./content/poison_german_sign.png')
 # Poison Softmax and RBF models with percentages of the 80 km/hr class being poisoned #
 #######################################################################################
 def detect_clean_data(prediction, poison_idx, x_poison,y_poison,a):
-  confidence = prediction[np.arange(prediction.shape[0]),np.argmax(y_poison,axis=1)]
-  tp = fp = 0
-  total_poison = len(poison_idx)
-  total_normal = y_poison.shape[0] - len(poison_idx)
-  total = 0
-  irq = stats.iqr(confidence)
-  q3 = np.quantile(confidence, 0.75)
-  thresh = q3 + a*irq
-  thresh = a
-  idx_dirty = np.where(confidence >= thresh)[0]
-  for j in range(len(idx_dirty)):
-      if idx_dirty[j] in poison_idx:
-          tp += 1.0
-  fn = len(poison_idx) - tp
-  fp = len(idx_dirty) - tp
-  tn = len(y_poison) - tp - fp - fn
-  return tp,fp,tn,fn
+    confidence = prediction[np.arange(prediction.shape[0]),np.argmax(y_poison,axis=1)]
+    tp = fp = 0
+    total_poison = len(poison_idx)
+    total_normal = y_poison.shape[0] - len(poison_idx)
+    total = 0
+    irq = stats.iqr(confidence)
+    q3 = np.quantile(confidence, 0.75)
+    thresh = q3 + a*irq
+    thresh = a
+    idx_dirty = np.where(confidence >= thresh)[0]
+    for j in range(len(idx_dirty)):
+        if idx_dirty[j] in poison_idx:
+            tp += 1.0
+    fn = len(poison_idx) - tp
+    fp = len(idx_dirty) - tp
+    tn = len(y_poison) - tp - fp - fn
+    return tp,fp,tn,fn
 
 probs = [0.005,0.01,0.02,0.03,0.04]
 correctness_all_test_data = []
@@ -605,83 +600,83 @@ i = 0
 various_ps = []
 x_test_poison,y_test_poison,x_test_clean,y_test_clean,x_test_backdoor,y_test_backdoor,idx_poison  = PoisonGTSB(testX,testY,targetLabel=5,p=0.1)
 for p in probs:
-  # generate poison data
-  x_train_poison,y_train_poison,x_train_clean,y_train_clean,x_train_backdoor,y_train_backdoor,poisoned_idx_train = PoisonGTSB(trainX,trainY,targetLabel=5,p=p)
-  print('Number of poisoned:',len(poisoned_idx_train))
-  # softmax train
-  softmax_poison = ResNetV1(RBF=False)
-  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5')):
-    softmax_poison.load(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'))
-  else:
-    softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'),epochs=4)
-  # get predictions
-  predictions = np.argmax(softmax_poison.predict(x_test_backdoor),axis=1)
-  labels = np.argmax(y_test_backdoor,axis=1)
-  acc_reg_poison = np.sum(predictions == labels)/len(labels)
-  print('Poison success',acc_reg_poison)
-  predictions = np.argmax(softmax_poison.predict(x_train_poison),axis=1)
-  labels = np.argmax(y_train_poison,axis=1)
-  acc_train_reg = np.sum(predictions == labels)/len(labels)
+    # generate poison data
+    x_train_poison,y_train_poison,x_train_clean,y_train_clean,x_train_backdoor,y_train_backdoor,poisoned_idx_train = PoisonGTSB(trainX,trainY,targetLabel=5,p=p)
+    print('Number of poisoned:',len(poisoned_idx_train))
+    # softmax train
+    softmax_poison = ResNetV1(RBF=False)
+    if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5')):
+        softmax_poison.load(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'))
+    else:
+        softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'),epochs=4)
+    # get predictions
+    predictions = np.argmax(softmax_poison.predict(x_test_backdoor),axis=1)
+    labels = np.argmax(y_test_backdoor,axis=1)
+    acc_reg_poison = np.sum(predictions == labels)/len(labels)
+    print('Poison success',acc_reg_poison)
+    predictions = np.argmax(softmax_poison.predict(x_train_poison),axis=1)
+    labels = np.argmax(y_train_poison,axis=1)
+    acc_train_reg = np.sum(predictions == labels)/len(labels)
 
-  predictions = np.argmax(softmax_poison.predict(x_test_poison),axis=1)
-  labels = np.argmax(y_test_poison,axis=1)
-  acc_reg_clean = np.sum(predictions == labels)/len(labels)
-  print('Test accuracy', acc_reg_clean)
+    predictions = np.argmax(softmax_poison.predict(x_test_poison),axis=1)
+    labels = np.argmax(y_test_poison,axis=1)
+    acc_reg_clean = np.sum(predictions == labels)/len(labels)
+    print('Test accuracy', acc_reg_clean)
 
-  # perform activation clustering defense
-  classifier = KerasClassifier(model=softmax_poison.model)
-  defence = ActivationDefence(classifier, x_train_poison, y_train_poison)
-  report, is_clean_lst = defence.detect_poison(nb_clusters=2,
-                                              nb_dims=10,
-                                              reduce="PCA")
-  # calculate tp,fp,tn,fn
-  attempt_idx = np.sort(np.where(np.array(is_clean_lst)== 0)[0])
-  poison_idx_sort = np.sort(poisoned_idx_train)
-  # calculate true positive
-  tp_reg = 0.0
-  for idx in attempt_idx:
-      if idx in poison_idx_sort:
-          tp_reg += 1.0
-  fn_reg = len(poison_idx_sort) - tp_reg
-  fp_reg = len(attempt_idx) - tp_reg
-  tn_reg = y_train_poison.shape[0] - fn_reg - fp_reg - tp_reg
+    # perform activation clustering defense
+    classifier = KerasClassifier(model=softmax_poison.model)
+    defence = ActivationDefence(classifier, x_train_poison, y_train_poison)
+    report, is_clean_lst = defence.detect_poison(nb_clusters=2,
+                                                nb_dims=10,
+                                                reduce="PCA")
+    # calculate tp,fp,tn,fn
+    attempt_idx = np.sort(np.where(np.array(is_clean_lst)== 0)[0])
+    poison_idx_sort = np.sort(poisoned_idx_train)
+    # calculate true positive
+    tp_reg = 0.0
+    for idx in attempt_idx:
+        if idx in poison_idx_sort:
+            tp_reg += 1.0
+    fn_reg = len(poison_idx_sort) - tp_reg
+    fp_reg = len(attempt_idx) - tp_reg
+    tn_reg = y_train_poison.shape[0] - fn_reg - fp_reg - tp_reg
 
-  print('Results (tp,fp,tn,fn)',tp_reg,fp_reg,tn_reg,fn_reg)
+    print('Results (tp,fp,tn,fn)',tp_reg,fp_reg,tn_reg,fn_reg)
 
 
-  # train anomaly
-  anomaly_poison = ResNetV1(anomalyDetector=True)
-  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5')):
-    anomaly_poison.load(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'))
-  else:
-    anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'),epochs=4)
-  # get predictions
+    # train anomaly
+    anomaly_poison = ResNetV1(anomalyDetector=True)
+    if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5')):
+      anomaly_poison.load(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'))
+    else:
+      anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'),epochs=4)
+    # get predictions
 
-  predictions = np.argmax(anomaly_poison.predict(x_test_backdoor),axis=1)
-  labels = np.argmax(y_test_backdoor,axis=1)
-  acc_rbf_poison = np.sum(predictions == labels)/len(labels)
-  print('Poison success',acc_rbf_poison)
+    predictions = np.argmax(anomaly_poison.predict(x_test_backdoor),axis=1)
+    labels = np.argmax(y_test_backdoor,axis=1)
+    acc_rbf_poison = np.sum(predictions == labels)/len(labels)
+    print('Poison success',acc_rbf_poison)
 
-  predictions = np.argmax(anomaly_poison.predict(x_test_poison),axis=1)
-  labels = np.argmax(y_test_poison,axis=1)
-  acc_rbf_clean = np.sum(predictions == labels)/len(labels)
-  print('Test accuracy',acc_rbf_clean)
+    predictions = np.argmax(anomaly_poison.predict(x_test_poison),axis=1)
+    labels = np.argmax(y_test_poison,axis=1)
+    acc_rbf_clean = np.sum(predictions == labels)/len(labels)
+    print('Test accuracy',acc_rbf_clean)
 
-#   confidence = anomaly_poison.predict(x_train_poison)
-#   # predictions_train[i,:,:] = confidence
-#   i += 1
-#   predictions = np.argmax(confidence,axis=1)
-#   labels = np.argmax(y_train_poison,axis=1)
-#   acc_train_rbf = np.sum(predictions == labels)/len(labels)
-#   tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(confidence, poisoned_idx_train, x_train_poison,y_train_poison,1.5)
+    confidence = anomaly_poison.predict(x_train_poison)
+    # predictions_train[i,:,:] = confidence
+    i += 1
+    predictions = np.argmax(confidence,axis=1)
+    labels = np.argmax(y_train_poison,axis=1)
+    acc_train_rbf = np.sum(predictions == labels)/len(labels)
+    tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(confidence, poisoned_idx_train, x_train_poison,y_train_poison,1.5)
 
-#   correctness_all_test_data.append([acc_reg_clean,acc_rbf_clean])
-#   correctness_poison_test_data.append([acc_reg_poison,acc_rbf_poison])
-#   true_positives.append([tp_reg,tp_rbf])
-#   false_positives.append([fp_reg,fp_rbf])
-#   false_negatives.append([fn_reg,fn_rbf])
-#   true_negatives.append([tn_reg,tn_rbf])
-#   correctness_all_train_data.append([acc_train_reg,acc_train_rbf])
+    correctness_all_test_data.append([acc_reg_clean,acc_rbf_clean])
+    correctness_poison_test_data.append([acc_reg_poison,acc_rbf_poison])
+    true_positives.append([tp_reg,tp_rbf])
+    false_positives.append([fp_reg,fp_rbf])
+    false_negatives.append([fn_reg,fn_rbf])
+    true_negatives.append([tn_reg,tn_rbf])
+    correctness_all_train_data.append([acc_train_reg,acc_train_rbf])
 
 # np.save(os.path.join(BASEDIR_GTSB,'tp.npy'),true_positives)
 # np.save(os.path.join(BASEDIR_GTSB,'fn.npy'),false_negatives)
@@ -696,4 +691,534 @@ for p in probs:
 ############################################################################################
 # Compute the ROC (Receiver Operator Characteristics) for the RBF Outlier Detection Method #
 ############################################################################################
+probs = [0.005,0.01,0.02,0.03,0.04]
+alphas = np.linspace(0,5,30)
+results = []
+IRQS = []
+results_IRQS= []
+i = 0
+anomaly_poison = ResNetV1(anomalyDetector=True)
+for p in probs:
+    print(p)
+    x_train_poison,y_train_poison,x_train_clean,y_train_clean,x_train_backdoor,y_train_backdoor,poisoned_idx_train = PoisonGTSB(trainX,trainY,targetLabel=5,p=p)
+    anomaly_poison.load(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'))
+    x_train_backdoor = x_train_poison[poisoned_idx_train]
+    y_train_backdoor = y_train_poison[poisoned_idx_train]
+    indices = np.arange(y_train_poison.shape[0])
+    cleanIdx = np.delete(indices,poisoned_idx_train,axis=0)
+    x_train_clean = x_train_poison[cleanIdx]
+    y_train_clean = y_train_poison[cleanIdx]
+    predictions = anomaly_poison.model.predict(x_train_poison)
+    confidence = predictions[np.arange(predictions.shape[0]),np.argmax(y_train_poison,axis=1)]
+    irq = stats.iqr(confidence)
+    q3 = np.quantile(confidence, 0.75)
+    thresh = q3 + 1.5*irq
+    IRQS.append(thresh)
+    for a in alphas:
+        tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,a)
+        results.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
+    tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,thresh)
+    results_IRQS.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
+    i += 1
+np.save(os.path.join(BASEDIR_GTSB,'results.npy'),results)
+
+##############################################################################
+# MNIST Poisoning Attack Poison various percentages of the training data set #
+##############################################################################
+(x_train, y_train), (x_test, y_test), min_pixel_value, max_pixel_value = load_mnist()
+probs = [0.03,0.04,0.05,0.06,0.07, 0.08,0.1,0.13,0.15,0.25]
+correctness_all_test_data = []
+correctness_poison_test_data = []
+true_positives = []
+false_positives = []
+false_negatives = []
+true_negatives = []
+correctness_all_train_data = []
+predictions_train = np.zeros((len(probs),60000,10))
+restart = False
+i = 0
+various_ps = []
+x_test_poison,y_test_poison,poisoned_idx = PoisonMNIST(X=x_test,
+                                                Y = y_test,
+                                                p=0.1)
+x_backdoor = x_test_poison[poisoned_idx]
+y_backdoor = y_test_poison[poisoned_idx]
+for p in probs:
+    # generate poison data
+    x_train_poison,y_train_poison,poisoned_idx_train = PoisonMNIST(X=x_train,
+                                                  Y = y_train,
+                                                  p=p)
+    x_train_backdoor = x_train_poison[poisoned_idx_train]
+    y_train_backdoor = y_train_poison[poisoned_idx_train]
+    indices = np.arange(y_train_poison.shape[0])
+    cleanIdx = np.delete(indices,poisoned_idx_train,axis=0)
+    x_train_clean = x_train_poison[cleanIdx]
+    y_train_clean = y_train_poison[cleanIdx]
+    print('Number of poisoned:',len(poisoned_idx_train))
+
+    softmax_poison = MNISTModel(RBF=False)
+    if not restart and os.path.isfile(os.path.join(BASEDIR_MNIST,'model'+str(p)+'.h5')):
+        softmax_poison.load(os.path.join(BASEDIR_MNIST,'model'+str(p)+'.h5'))
+    else:
+        softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_MNIST,'model'+str(p)+'.h5'),epochs=5)
+    predictions = np.argmax(softmax_poison.predict(x_backdoor),axis=1)
+    labels = np.argmax(y_backdoor,axis=1)
+    acc_reg_poison = np.sum(predictions == labels)/len(labels)
+    print('Poison success',acc_reg_poison)
+    predictions = np.argmax(softmax_poison.predict(x_train_poison),axis=1)
+    labels = np.argmax(y_train_poison,axis=1)
+    acc_train_reg = np.sum(predictions == labels)/len(labels)
+
+    predictions = np.argmax(softmax_poison.predict(x_test_poison),axis=1)
+    labels = np.argmax(y_test_poison,axis=1)
+    acc_reg_clean = np.sum(predictions == labels)/len(labels)
+    print('Test accuracy',acc_reg_clean)
+
+    # perform activation clustering defense
+    classifier = KerasClassifier(model=softmax_poison.model)
+    defence = ActivationDefence(classifier, x_train_poison, y_train_poison)
+    report, is_clean_lst = defence.detect_poison(nb_clusters=2,
+                                                nb_dims=10,
+                                                reduce="PCA")
+    # calculate tp,fp,tn,fn
+    attempt_idx = np.sort(np.where(np.array(is_clean_lst)== 0)[0])
+    poison_idx_sort = np.sort(poisoned_idx_train)
+    # calculate true positive
+    tp_reg = 0.0
+    for idx in attempt_idx:
+        if idx in poison_idx_sort:
+            tp_reg += 1.0
+    fn_reg = len(poison_idx_sort) - tp_reg
+    fp_reg = len(attempt_idx) - tp_reg
+    tn_reg = y_train_poison.shape[0] - fn_reg - fp_reg - tp_reg
+
+    print('Results (tp,fp,tn,fn)',tp_reg,fp_reg,tn_reg,fn_reg)
+
+    # train anomaly on feature space of poisoned model
+    anomaly_poison = MNISTModel(anomalyDetector=True)
+    if not restart and os.path.isfile(os.path.join(BASEDIR_MNIST,'poison'+str(p)+'.h5')):
+        anomaly_poison.load(os.path.join(BASEDIR_MNIST,'poison'+str(p)+'.h5'))
+    else:
+        anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_MNIST,'poison'+str(p)+'.h5'),epochs=10)
+    predictions = np.argmax(anomaly_poison.predict(x_backdoor),axis=1)
+    labels = np.argmax(y_backdoor,axis=1)
+    acc_rbf_poison = np.sum(predictions == labels)/len(labels)
+    print('Poison success',acc_rbf_poison)
+
+    predictions = np.argmax(anomaly_poison.predict(x_test_poison),axis=1)
+    labels = np.argmax(y_test_poison,axis=1)
+    acc_rbf_clean = np.sum(predictions == labels)/len(labels)
+    print('Test accuracy',acc_rbf_clean)
+
+    confidence = anomaly_poison.predict(x_train_poison)
+    predictions_train[i,:,:] = confidence
+    i += 1
+    predictions = np.argmax(confidence,axis=1)
+    labels = np.argmax(y_train_poison,axis=1)
+    acc_train_rbf = np.sum(predictions == labels)/len(labels)
+
+    for quantile in [0.5,0.6,0.7,0.8,0.9]:
+        tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(anomaly_poison, poisoned_idx_train, x_train_poison,y_train_poison,quantile)
+        various_ps.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
+    print('Results (tp,fp,tn,fn)',tp_rbf,fp_rbf,tn_rbf,fn_rbf)
+
+    correctness_all_test_data.append([acc_reg_clean,acc_rbf_clean])
+    correctness_poison_test_data.append([acc_reg_poison,acc_rbf_poison])
+    true_positives.append([tp_reg,tp_rbf])
+    false_positives.append([fp_reg,fp_rbf])
+    false_negatives.append([fn_reg,fn_rbf])
+    true_negatives.append([tn_reg,tn_rbf])
+    correctness_all_train_data.append([acc_train_reg,acc_train_rbf])
+
+#np.save(os.path.join(BASEDIR_MNIST,'tp.npy'),true_positives)
+#np.save(os.path.join(BASEDIR_MNIST,'fn.npy'),false_negatives)
+#np.save(os.path.join(BASEDIR_MNIST,'tn.npy'),true_negatives)
+#np.save(os.path.join(BASEDIR_MNIST,'fp.npy'),false_positives)
+#np.save(os.path.join(BASEDIR_MNIST,'acc_clean.npy'),correctness_all_test_data)
+#np.save(os.path.join(BASEDIR_MNIST,'acc_poison.npy'),correctness_poison_test_data)
+#np.save(os.path.join(BASEDIR_MNIST,'acc_train.npy'),correctness_all_train_data)
+#np.save(os.path.join(BASEDIR_MNIST,'predictions_anomaly_train.npy'),predictions_train)
+#np.save(os.path.join(BASEDIR_MNIST,'various_ps.npy'),various_ps)
+
+#####################
+# Compute ROC Curve #
+#####################
+predictions_train = np.load(os.path.join(BASEDIR_MNIST,'predictions_anomaly_train.npy'))
+alphas = np.linspace(0,5,30)
+results = []
+IRQS = []
+results_IRQS= []
+i = 0
+anomaly_poison = MNISTModel(anomalyDetector=True)
+for p in probs:
+    print(p)
+    x_train_poison,y_train_poison,poisoned_idx_train = PoisonMNIST(X=x_train,
+                                                  Y = y_train,
+                                                  p=p)
+    anomaly_poison.load(os.path.join(BASEDIR_MNIST,'poison'+str(p)+'.h5'))
+    x_train_backdoor = x_train_poison[poisoned_idx_train]
+    y_train_backdoor = y_train_poison[poisoned_idx_train]
+    indices = np.arange(y_train_poison.shape[0])
+    cleanIdx = np.delete(indices,poisoned_idx_train,axis=0)
+    x_train_clean = x_train_poison[cleanIdx]
+    y_train_clean = y_train_poison[cleanIdx]
+    predictions = anomaly_poison.model.predict(x_train_poison)
+    confidence = predictions[np.arange(predictions.shape[0]),np.argmax(y_train_poison,axis=1)]
+    irq = stats.iqr(confidence)
+    q3 = np.quantile(confidence, 0.75)
+    thresh = q3 + 1.5*irq
+    IRQS.append(thresh)
+    for a in alphas:
+        tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,a)
+        results.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
+    tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,thresh)
+    results_IRQS.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
+    i += 1
+np.save(os.path.join(BASEDIR_MNIST,'results.npy'),results)
+
+############################################
+# Visualize the ROC Curve for both attacks #
+############################################
+results = np.load(os.path.join(BASEDIR_GTSB,'results.npy'))
+results = np.array(results)
+probs = [0.005,0.01,0.02,0.03,0.04]
+alphas = np.linspace(0,5,30)
+TP = results[:,0]
+FP = results[:,1]
+TN = results[:,2]
+FN = results[:,3]
+TP_rate = TP / (TP + FN)
+FP_rate = FP / (TN + FP)
+plt.figure(figsize=(8,7))
+plt.subplot(2,1,2)
+for i in range(len(probs)):
+    tp_rate = TP_rate[i*len(alphas):(i+1)*len(alphas)]
+    fp_rate = FP_rate[i*len(alphas):(i+1)*len(alphas)]
+    n = int(35856*probs[i])
+    auc = sklearn.metrics.auc(fp_rate,tp_rate)/np.ptp(fp_rate)
+    label = 'n='+str(n)+' AUC='+str(np.round(auc,2))
+    plt.scatter(fp_rate,tp_rate,label=label,alpha=0.8)
+plt.xlabel('FP Rate',fontsize=14)
+plt.ylabel('TP Rate',fontsize=14)
+plt.title('RBF Outlier Detection Method on GTSB Attack',fontsize=16,pad=10)
+plt.legend(prop={'size': 9})
+plt.grid(True)
+plt.tick_params(axis='both',labelsize = 12)
+plt.subplot(2,1,1)
+results = np.load(os.path.join(BASEDIR_MNIST,'results.npy'))
+results = np.array(results)
+probs = [0.03,0.04,0.05,0.06,0.07, 0.08,0.1,0.13,0.15,0.25]
+alphas = np.linspace(0,5,30)
+TP = results[:,0]
+FP = results[:,1]
+TN = results[:,2]
+FN = results[:,3]
+TP_rate = TP / (TP + FN)
+FP_rate = FP / (TN + FP)
+for i in range(len(probs)):
+    tp_rate = TP_rate[i*len(alphas):(i+1)*len(alphas)]
+    fp_rate = FP_rate[i*len(alphas):(i+1)*len(alphas)]
+    n = int(60000*probs[i])
+    auc = sklearn.metrics.auc(fp_rate,tp_rate)/np.ptp(fp_rate)
+    label = 'n='+str(n)+' AUC='+str(np.round(auc,2))
+    plt.scatter(fp_rate,tp_rate,label=label,alpha=0.8)
+plt.xlabel('FP Rate',fontsize=14)
+plt.ylabel('TP Rate',fontsize=14)
+plt.title('RBF Outlier Detection Method on MNIST Attack',fontsize=16,pad=10)
+plt.legend(prop={'size': 9})
+plt.grid(True)
+#plt.suptitle("RBF Outlier Detection Method ROC Curve", fontsize=18)
+plt.tight_layout(pad=3)
+plt.tick_params(axis='both',labelsize = 12)
+#plt.subplots_adjust(top=0.82)
+plt.savefig('./images/ROC2.eps', format='eps', dpi=1000)
+
+#############################################
+# Compare with the outlier detection method #
+#############################################
+probs = [0.005,0.01,0.02,0.03,0.04]
+alphas = np.linspace(0,5,30)
+true_positives = np.load(os.path.join(BASEDIR_GTSB,'tp.npy'))[:,0]
+false_negatives = np.load(os.path.join(BASEDIR_GTSB,'fn.npy'))[:,0]
+true_negatives = np.load(os.path.join(BASEDIR_GTSB,'tn.npy'))[:,0]
+false_positives = np.load(os.path.join(BASEDIR_GTSB,'fp.npy'))[:,0]
+sensitivity = true_positives / (true_positives + false_negatives)
+specificity = true_negatives / (true_negatives + false_positives)
+false_positive = false_positives / (true_negatives + false_positives)
+
+class_size = np.sum(np.argmax(y_train_poison,1)==5)
+n = [int(p*35856) for p in probs]
+ind = np.arange(len(probs))
+width = 0.25
+
+
+fig = plt.figure(figsize=(16,8))
+plt.subplot(2,2,3)
+plt.bar(ind,true_positives,width,label='True Positives')
+plt.bar(ind,false_negatives,width,bottom=true_positives,label='False Negatives')
+plt.bar(ind,false_positives,width,bottom=false_negatives+true_positives,label='False Positives')
+plt.ylabel('Number of Data Points',fontsize=14)
+plt.xlabel('Percentage of Class \'Speed Limit (80 km/h)\' Poisoned',fontsize=14)
+plt.title(r'AC Method: GTSB',fontsize=16,pad=10)
+
+probs_string = [np.round(int(p*35856)/class_size,2) for p in probs]
+probs_string = tuple(probs_string)
+plt.xticks(ind, probs_string)
+plt.yticks(np.arange(0, 20000, 5000))
+plt.grid(True,alpha=0.5)
+plt.tick_params(axis='both',labelsize = 12)
+
+plt.grid(True)
+j = 10
+thresh = np.round(alphas[j],2)
+idx = [i*30+j for i in range(len(probs))]
+TP = results[:,0]
+FP = results[:,1]
+TN = results[:,2]
+FN = results[:,3]
+
+plt.subplot(2,2,4)
+plt.bar(ind,TP[idx],width,label='True Positives')
+plt.bar(ind,FN[idx],width,bottom=TP[idx],label='False Negatives')
+#plt.bar(ind,true_negatives,width,bottom=false_negatives+true_positives,label='True Negatives')
+plt.bar(ind,FP[idx],width,bottom=FN[idx]+TP[idx],label='False Positives')
+plt.ylabel('Number of Data Points',fontsize=14)
+plt.xlabel('Percentage of Class \'Speed Limit (80 km/h)\' Poisoned',fontsize=14)
+plt.title(r'RBF Outlier Detection ($\beta='+str(thresh)+'$): GTSB',fontsize=16,pad=10)
+
+probs_string = [np.round(int(p*35856)/class_size,2) for p in probs]
+probs_string = tuple(probs_string)
+plt.xticks(ind, probs_string)
+plt.yticks(np.arange(0, 20000, 5000))
+plt.grid(True,alpha=0.5)
+plt.tick_params(axis='both',labelsize = 12)
+
+probs = [0.03,0.04,0.05,0.06,0.07, 0.08,0.1,0.13,0.15,0.25]
+
+true_positives = np.load(os.path.join(BASEDIR_MNIST,'tp.npy'))[:,0]
+false_negatives = np.load(os.path.join(BASEDIR_MNIST,'fn.npy'))[:,0]
+true_negatives = np.load(os.path.join(BASEDIR_MNIST,'tn.npy'))[:,0]
+false_positives = np.load(os.path.join(BASEDIR_MNIST,'fp.npy'))[:,0]
+false_positive = false_positives / (true_negatives + false_positives)
+
+sensitivity = true_positives / (true_positives + false_negatives)
+specificity = true_negatives / (true_negatives + false_positives)
+n = [int(p*60000) for p in probs]
+ind = np.arange(10)
+width = 0.5
+
+
+
+plt.subplot(2,2,1)
+plt.bar(ind,true_positives,width,label='True Positives')
+plt.bar(ind,false_negatives,width,bottom=true_positives,label='False Negatives')
+plt.bar(ind,false_positives,width,bottom=false_negatives+true_positives,label='False Positives')
+plt.ylabel('Number of Data Points',fontsize=14)
+plt.xlabel('Percentage of Training Data Poisoned',fontsize=14)
+plt.title(r'AC Method: MNIST',fontsize=16,pad=10)
+plt.legend()
+
+probs_string = [str(p) for p in probs]
+probs_string = tuple(probs_string)
+plt.xticks(ind, probs_string)
+plt.yticks(np.arange(0, 30000, 5000))
+plt.grid(True,alpha=0.5)
+plt.tick_params(axis='both',labelsize = 12)
+plt.grid(True)
+
+j = 10
+thresh = np.round(alphas[j],2)
+idx = [i*30+j for i in range(10)]
+TP = results[:,0]
+FP = results[:,1]
+TN = results[:,2]
+FN = results[:,3]
+
+plt.subplot(2,2,2)
+plt.bar(ind,TP[idx],width,label='True Positives')
+plt.bar(ind,FN[idx],width,bottom=TP[idx],label='False Negatives')
+#plt.bar(ind,true_negatives,width,bottom=false_negatives+true_positives,label='True Negatives')
+plt.bar(ind,FP[idx],width,bottom=FN[idx]+TP[idx],label='False Positives')
+plt.ylabel('Number of Data Points',fontsize=14)
+plt.xlabel('Percentage of Training Data Poisoned',fontsize=14)
+plt.title(r'RBF Outlier Detection ($\beta='+str(thresh)+'$): MNIST',fontsize=16,pad=10)
+
+probs_string = [str(p) for p in probs]
+probs_string = tuple(probs_string)
+plt.xticks(ind, probs_string)
+plt.yticks(np.arange(0, 30000, 5000))
+plt.grid(True,alpha=0.5)
+plt.tight_layout(pad=4)
+plt.tick_params(axis='both',labelsize = 12)
+plt.savefig('./images/poison_cleaning2.pdf', format='pdf', dpi=1000,bbox_inches='tight',facecolor=fig.get_facecolor())
+
+######################################
+# Show poisoning success rate on RBF #
+######################################
+correctness_all_test_data = np.load(os.path.join(BASEDIR_GTSB,'acc_clean.npy'))
+correctness_poison_test_data = np.load(os.path.join(BASEDIR_GTSB,'acc_poison.npy'))
+correctness_all_train_data = np.load(os.path.join(BASEDIR_GTSB,'acc_train.npy'))
+
+plt.figure()
+probs = [0.005,0.01,0.02,0.03,0.04]
+# Numbers of pairs of bars you want
+N = len(probs)
+probs_string = [np.round(int(p*35856)/class_size,2) for p in probs]
+probs_string = tuple(probs_string)
+# Data on X-axis
+
+# Specify the values of blue bars (height)
+blue_bar = [correctness_poison_test_data[i,0] for i in range(len(probs)) ]
+# Specify the values of orange bars (height)
+orange_bar = [correctness_poison_test_data[i,1] for i in range(len(probs)) ]
+# Position of bars on x-axis
+ind = np.arange(N)
+
+# Figure size
+fig = plt.figure(figsize=(16,8))
+plt.subplot(2,2,3)
+
+# Width of a bar 
+width = 0.25  
+# Plotting
+plt.xticks(ind + width, probs_string)
+plt.yticks(np.linspace(0,1,10))
+plt.bar(ind, blue_bar , width, label=r'',color='red')
+plt.bar(ind + width, orange_bar, width, label=r'',color='green')
+plt.ylabel('Accuracy',fontsize=12)
+plt.legend(loc='upper left',title='Models',prop={'size': 14})
+plt.title('GTSB Backdoor Success (n=1200)',fontsize=16,pad=10)
+plt.grid(True,alpha=0.5)
+plt.xlabel('Percentage of Class \'Speed Limit (80 km/h)\' Poisoned',fontsize=14)
+plt.tick_params(axis='both',labelsize = 12)
+
+# xticks()
+# First argument - A list of positions at which ticks should be placed
+# Second argument -  A list of labels to place at the given locations
+
+# Finding the best position for legends and putting it
+probs_string = [np.round(int(p*35856)/class_size,2) for p in probs]
+probs_string = tuple(probs_string)
+probs = [0.005,0.01,0.02,0.03,0.04]
+
+# Numbers of pairs of bars you want
+N = len(probs)
+
+# Data on X-axis
+
+# Specify the values of blue bars (height)
+blue_bar = [correctness_all_test_data[i,0] for i in range(len(probs)) ]
+# Specify the values of orange bars (height)
+orange_bar = [correctness_all_test_data[i,1] for i in range(len(probs)) ]
+# Position of bars on x-axis
+ind = np.arange(N)
+
+# Figure size
+plt.subplot(2,2,4)
+# Width of a bar 
+width = 0.25  
+# Plotting
+plt.xticks(ind + width, probs_string)
+plt.yticks(np.linspace(0,1,10))
+plt.bar(ind, blue_bar , width, label='ResNet20 w/ Softmax Activation',color='red')
+plt.bar(ind + width, orange_bar, width, label='ResNet20 w/ RBF Layer',color='green')
+plt.ylabel('Accuracy',fontsize=12)
+plt.title('GTSB Test Accuracy (N=12630, Clean=11630, Poison=1200)',fontsize=16,pad=10)
+plt.xlabel('Percentage of Class \'Speed Limit (80 km/h)\' Poisoned',fontsize=14)
+plt.tick_params(axis='both',labelsize = 12)
+
+# xticks()
+# First argument - A list of positions at which ticks should be placed
+# Second argument -  A list of labels to place at the given locations
+
+# Finding the best position for legends and putting it
+probs_string = [np.round(int(p*35856)/class_size,2) for p in probs]
+probs_string = tuple(probs_string)
+plt.grid(True,alpha=0.5)
+
+correctness_all_test_data = np.load(os.path.join(BASEDIR_MNIST,'acc_clean.npy'))
+correctness_poison_test_data = np.load(os.path.join(BASEDIR_MNIST,'acc_poison.npy'))
+correctness_all_train_data = np.load(os.path.join(BASEDIR_MNIST,'acc_train.npy'))
+
+probs = [0.03,0.04,0.05,0.06,0.07, 0.08,0.1,0.13,0.15,0.25]
+probs_string = [str(p) for p in probs]
+probs_string = tuple(probs_string)
+# Numbers of pairs of bars you want
+N = len(probs)
+
+# Data on X-axis
+
+# Specify the values of blue bars (height)
+blue_bar = [correctness_poison_test_data[i,0] for i in range(len(probs)) ]
+# Specify the values of orange bars (height)
+orange_bar = [correctness_poison_test_data[i,1] for i in range(len(probs)) ]
+green_bar = [correctness_poison_test_data[i,2] for i in range(len(probs)) ]
+# Position of bars on x-axis
+ind = np.arange(N)
+
+# Figure size
+plt.subplot(2,2,1)
+
+# Width of a bar 
+width = 0.25  
+# Plotting
+plt.xticks(ind + width, probs_string)
+plt.yticks(np.linspace(0,1,10))
+plt.bar(ind, blue_bar , width, label=r'')
+plt.bar(ind + width, green_bar, width, label=r'')
+plt.bar(ind + 2*width, orange_bar, width, label=r'')
+plt.legend(loc='upper left',title='Models',prop={'size': 14})
+plt.ylabel('Accuracy',fontsize=14)
+plt.title('MNIST Backdoor Success (n=1000)',fontsize=16,pad=10)
+plt.grid(True,alpha=0.5)
+plt.xlabel('Percentage of Training Data Poisoned',fontsize=14)
+plt.tick_params(axis='both',labelsize = 12)
+
+# xticks()
+# First argument - A list of positions at which ticks should be placed
+# Second argument -  A list of labels to place at the given locations
+
+# Finding the best position for legends and putting it
+probs_string = [str(p) for p in probs]
+probs_string = tuple(probs_string)
+probs = [0.03,0.04,0.05,0.06,0.07, 0.08,0.1,0.13,0.15,0.25]
+
+# Numbers of pairs of bars you want
+N = len(probs)
+
+# Data on X-axis
+
+# Specify the values of blue bars (height)
+blue_bar = [correctness_all_test_data[i,0] for i in range(len(probs)) ]
+# Specify the values of orange bars (height)
+orange_bar = [correctness_all_test_data[i,1] for i in range(len(probs)) ]
+green_bar = [correctness_all_test_data[i,2] for i in range(len(probs)) ]
+# Position of bars on x-axis
+ind = np.arange(N)
+
+# Figure size
+plt.subplot(2,2,2)
+# Width of a bar 
+width = 0.25  
+# Plotting
+plt.xticks(ind + width, probs_string)
+plt.yticks(np.linspace(0,1,10))
+plt.bar(ind, blue_bar , width, label='Feature Extractor + FC layer + Softmax Activation')
+plt.bar(ind + width, green_bar, width, label='Feature Extractor + FC layer + RBF Layer')
+plt.bar(ind + 2*width, orange_bar, width, label='Feature Extractor + RBF Layer')
+plt.ylabel('Accuracy',fontsize=14)
+plt.title('MNIST Test Accuracy (N=10000, Clean=9000, Backdoor=1000)',fontsize=16,pad=10)
+plt.xlabel('Percentage of Training Data Poisoned',fontsize=14)
+plt.tick_params(axis='both',labelsize = 12)
+
+# xticks()
+# First argument - A list of positions at which ticks should be placed
+# Second argument -  A list of labels to place at the given locations
+
+# Finding the best position for legends and putting it
+probs_string = [str(p) for p in probs]
+probs_string = tuple(probs_string)
+plt.grid(True,alpha=0.5)
+plt.tight_layout(pad=3)
+plt.savefig('./images/poison_accuracy2.pdf', format='pdf', dpi=1000,bbox_inches='tight',facecolor=fig.get_facecolor())
 
