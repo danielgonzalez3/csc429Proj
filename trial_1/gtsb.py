@@ -103,10 +103,10 @@ for p in probs:
   print('Number of poisoned:',len(poisoned_idx_train))
   ################################################################################################################### softmax train
   softmax_poison = ResNetV1(RBF=False)
-  if not restart and os.path.isfile(os.path.join(baseDir_GTSB,'model'+str(p)+'.h5')):
-    softmax_poison.load(os.path.join(baseDir_GTSB,'model'+str(p)+'.h5'))
+  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5')):
+    softmax_poison.load(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'))
   else:
-    softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(baseDir_GTSB,'model'+str(p)+'.h5'),epochs=4)
+    softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'),epochs=4)
   ##################################################################################################################### get predictions
   predictions = np.argmax(softmax_poison.predict(x_test_backdoor),axis=1)
   labels = np.argmax(y_test_backdoor,axis=1)
@@ -144,10 +144,10 @@ for p in probs:
 
   ################################################################################################################################### train anomaly
   anomaly_poison = ResNetV1(anomalyDetector=True)
-  if not restart and os.path.isfile(os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5')):
-    anomaly_poison.load(os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5'))
+  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5')):
+    anomaly_poison.load(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'))
   else:
-    anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5'),epochs=4)
+    anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'),epochs=4)
   ##################################################################################################################### get predictions
 
   predictions = np.argmax(anomaly_poison.predict(x_test_backdoor),axis=1)
