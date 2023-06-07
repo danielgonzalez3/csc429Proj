@@ -101,17 +101,17 @@ for p in probs:
   # generate poison data
   x_train_poison,y_train_poison,x_train_clean,y_train_clean,x_train_backdoor,y_train_backdoor,poisoned_idx_train = PoisonGTSB(trainX,trainY,targetLabel=5,p=p)
   print('Number of poisoned:',len(poisoned_idx_train))
-  # softmax train
+  ################################################################################################################### softmax train
   softmax_poison = ResNetV1(RBF=False)
-  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5')):
-    softmax_poison.load(os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'))
+  if not restart and os.path.isfile(os.path.join(baseDir_GTSB,'model'+str(p)+'.h5')):
+    softmax_poison.load(os.path.join(baseDir_GTSB,'model'+str(p)+'.h5'))
   else:
-    softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'model'+str(p)+'.h5'),epochs=4)
-  # get predictions
+    softmax_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(baseDir_GTSB,'model'+str(p)+'.h5'),epochs=4)
+  ##################################################################################################################### get predictions
   predictions = np.argmax(softmax_poison.predict(x_test_backdoor),axis=1)
   labels = np.argmax(y_test_backdoor,axis=1)
   acc_reg_poison = np.sum(predictions == labels)/len(labels)
-  print('Poison success',acc_reg_poison)
+  print('Poison success - acc_reg_poison',acc_reg_poison)
   predictions = np.argmax(softmax_poison.predict(x_train_poison),axis=1)
   labels = np.argmax(y_train_poison,axis=1)
   acc_train_reg = np.sum(predictions == labels)/len(labels)
@@ -119,7 +119,7 @@ for p in probs:
   predictions = np.argmax(softmax_poison.predict(x_test_poison),axis=1)
   labels = np.argmax(y_test_poison,axis=1)
   acc_reg_clean = np.sum(predictions == labels)/len(labels)
-  print('Test accuracy', acc_reg_clean)
+  print('Test accuracy - acc_reg_clean', acc_reg_clean)
 
   # perform activation clustering defense
   classifier = KerasClassifier(model=softmax_poison.model)
@@ -142,23 +142,23 @@ for p in probs:
   print('Results (tp,fp,tn,fn)',tp_reg,fp_reg,tn_reg,fn_reg)
 
 
-  # train anomaly
+  ################################################################################################################################### train anomaly
   anomaly_poison = ResNetV1(anomalyDetector=True)
-  if not restart and os.path.isfile(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5')):
-    anomaly_poison.load(os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'))
+  if not restart and os.path.isfile(os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5')):
+    anomaly_poison.load(os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5'))
   else:
-    anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(BASEDIR_GTSB,'poison'+str(p)+'.h5'),epochs=4)
-  # get predictions
+    anomaly_poison.train(x_train_poison,y_train_poison,saveTo=os.path.join(baseDir_GTSB,'poison'+str(p)+'.h5'),epochs=4)
+  ##################################################################################################################### get predictions
 
   predictions = np.argmax(anomaly_poison.predict(x_test_backdoor),axis=1)
   labels = np.argmax(y_test_backdoor,axis=1)
   acc_rbf_poison = np.sum(predictions == labels)/len(labels)
-  print('Poison success',acc_rbf_poison)
+  print('Poison success - acc_rbf_poison',acc_rbf_poison)
 
   predictions = np.argmax(anomaly_poison.predict(x_test_poison),axis=1)
   labels = np.argmax(y_test_poison,axis=1)
   acc_rbf_clean = np.sum(predictions == labels)/len(labels)
-  print('Test accuracy',acc_rbf_clean)
+  print('Test accuracy - acc_rbf_clean',acc_rbf_clean)
 
   confidence = anomaly_poison.predict(x_train_poison)
   # predictions_train[i,:,:] = confidence
@@ -186,7 +186,4 @@ np.save(os.path.join(BASEDIR_GTSB,'acc_train.npy'),correctness_all_train_data)
 np.save(os.path.join(BASEDIR_GTSB,'predictions_anomaly_train.npy'),predictions_train)
 np.save(os.path.join(BASEDIR_GTSB,'various_ps.npy'),various_ps)
 
-############################################################################################
-# Compute the ROC (Receiver Operator Characteristics) for the RBF Outlier Detection Method #
-############################################################################################
 
