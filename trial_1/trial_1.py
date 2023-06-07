@@ -23,7 +23,8 @@ from skimage import io, transform
 import random
 
 GTSB_ZIP_PATH = "./gtsb-german-traffic-sign.zip"
-BASEDIR_GTSB = "./German_Traffic_Results" # where you want to save all your results
+BASEDIR_GTSB = "gtsb-german-traffic-sign"
+# BASEDIR_GTSB = "./German_Traffic_Results" # where you want to save all your results
 BASEDIR_MNIST = "./MNIST_Results" # where you want to save the MNIST poisoning results
 DATASET_GTSB = "./gtsb-german-traffic-sign" # the location of the German Traffic Sign folder in your Colab run-time (probably don't need to change this)
 
@@ -197,11 +198,11 @@ class MNISTModel():
             model.add(Activation('tanh'))
             model.add(Dense(64, activation='tanh'))
             model.add(RBFLayer(10,0.5))
-            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(),metrics=[DistanceMetric])
+            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(),metrics=[DistanceMetric])
         elif(anomalyDetector):
             model.add(Activation('tanh'))
             model.add(RBFLayer(10,0.5))
-            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(lr=0.001),metrics=[DistanceMetric])
+            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(lr=0.001),metrics=[DistanceMetric])
         else:
             model.add(Dense(100, activation='relu'))
             model.add(Dense(10, activation='softmax'))
@@ -219,11 +220,11 @@ class MNISTModel():
             predictions = np.divide(top.T,bottom).T
         return predictions
 
-    def train(self,X,Y,saveTo,epochs=10):
+    def train(self,X,Y,saveTo,epochs=10): 
         if (self.isRBF or self.isAnomalyDetector):
-            checkpoint = ModelCheckpoint(saveTo, monitor='DistanceMetric', verbose=1, save_best_only=True, save_weights_only=False, mode='max', period=1)
+            checkpoint = ModelCheckpoint(saveTo, monitor='DistanceMetric', verbose=1, save_best_only=True, save_weights_only=False, mode='max', save_freq=1)
         else:
-            checkpoint = ModelCheckpoint(saveTo, monitor='val_acc', verbose=1, save_best_only=True, save_weights_only=False, mode='auto', period=1)
+            checkpoint = ModelCheckpoint(saveTo, monitor='val_acc', verbose=1, save_best_only=True, save_weights_only=False, mode='auto', save_freq=1)
         self.model.fit(X, Y,
                 batch_size=16,
                 epochs=epochs,
@@ -296,18 +297,18 @@ class ResNetV1():
             outputs = Dense(64,activation='tanh')(y)
             outputs = RBFLayer(num_classes,0.5)(outputs)
             model = Model(inputs=inputs, outputs=outputs)
-            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(),metrics=[DistanceMetric])
+            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(),metrics=[DistanceMetric])
         elif(anomalyDetector):
             outputs = Activation('tanh')(y)
             outputs = RBFLayer(num_classes,0.5)(outputs)
             model = Model(inputs=inputs, outputs=outputs)
-            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(),metrics=[DistanceMetric])
+            model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(),metrics=[DistanceMetric])
         else:
             #outputs = Dense(32,activation='relu')(y)
             y = Activation('relu')(y)
             outputs = Dense(num_classes,activation='softmax')(y)
             model = Model(inputs=inputs, outputs=outputs)
-            model.compile(loss='categorical_crossentropy',optimizer=keras.optimizers.Adam(),metrics=['accuracy'])
+            model.compile(loss='categorical_crossentropy',optimizer=keras.optimizers.legacy.Adam(),metrics=['accuracy'])
         self.model = model
 
     def transfer(self,weights,isRBF=False,anomalyDetector=False):
@@ -322,7 +323,7 @@ class ResNetV1():
             x = Dense(64, activation='tanh',kernel_initializer='random_uniform',bias_initializer='zeros')(self.model.layers[-3].output)
             x = RBFLayer(43,0.5)(x)
             self.model = Model(inputs=self.model.inputs, outputs=x)
-            self.model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(),metrics=[DistanceMetric])
+            self.model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(),metrics=[DistanceMetric])
         elif (self.isAnomalyDetector):
             self.model = load_model(weights, custom_objects={'RBFLayer': RBFLayer,'DistanceMetric':DistanceMetric,'RBF_Soft_Loss':RBF_Soft_Loss})
             for layer in self.model.layers[:-3]:
@@ -330,7 +331,7 @@ class ResNetV1():
             x = Activation('tanh')(self.model.layers[-3].output)
             x = RBFLayer(43,0.5)(x)
             self.model = Model(inputs=self.model.inputs, outputs=x)
-            self.model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.Adam(),metrics=[DistanceMetric])            
+            self.model.compile(loss=RBF_Soft_Loss,optimizer=keras.optimizers.legacy.Adam(),metrics=[DistanceMetric])            
         else:
             self.model = load_model(weights)
             for layer in self.model.layers[:-3]:
