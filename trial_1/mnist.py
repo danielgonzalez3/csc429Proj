@@ -27,46 +27,10 @@ from sklearn.metrics import classification_report
 from keras.layers import Conv2D,BatchNormalization,Activation
 from keras.regularizers import l2
 from skimage import io, transform
-from model import detect_clean_data
+from model import detect_clean_data, MNISTModel, PoisonMNIST
 import random
 
 BASEDIR_MNIST = "./MNIST"
-
-############################################################################################
-# Compute the ROC (Receiver Operator Characteristics) for the RBF Outlier Detection Method #
-############################################################################################
-# predictions_train = np.load(os.path.join(BASEDIR_MNIST,'predictions_anomaly_train.npy'))
-alphas = np.linspace(0,5,30)
-results = []
-IRQS = []
-results_IRQS= []
-i = 0
-anomaly_poison = MNISTModel(anomalyDetector=True)
-for p in probs:
-  print(p)
-  x_train_poison,y_train_poison,poisoned_idx_train = PoisonMNIST(X=x_train,
-                                                Y = y_train,
-                                                p=p)
-  anomaly_poison.load(os.path.join(BASEDIR_MNIST,'poison'+str(p)+'.h5'))
-  x_train_backdoor = x_train_poison[poisoned_idx_train]
-  y_train_backdoor = y_train_poison[poisoned_idx_train]
-  indices = np.arange(y_train_poison.shape[0])
-  cleanIdx = np.delete(indices,poisoned_idx_train,axis=0)
-  x_train_clean = x_train_poison[cleanIdx]
-  y_train_clean = y_train_poison[cleanIdx]
-  predictions = anomaly_poison.model.predict(x_train_poison)
-  confidence = predictions[np.arange(predictions.shape[0]),np.argmax(y_train_poison,axis=1)]
-  irq = stats.iqr(confidence)
-  q3 = np.quantile(confidence, 0.75)
-  thresh = q3 + 1.5*irq
-  IRQS.append(thresh)
-  for a in alphas:
-    tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,a)
-    results.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
-  tp_rbf,fp_rbf,tn_rbf,fn_rbf = detect_clean_data(predictions,poisoned_idx_train,x_train_poison,y_train_poison,thresh)
-  results_IRQS.append([tp_rbf,fp_rbf,tn_rbf,fn_rbf])
-  i += 1
-np.save(os.path.join(BASEDIR_MNIST,'results.npy'),results)
 
 ##########################
 # MNIST Poisoning Attack #
