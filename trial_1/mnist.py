@@ -31,11 +31,12 @@ from model import detect_clean_data
 import random
 
 BASEDIR_MNIST = "./MNIST"
+BASEDIR_GTSB = "./gtsb-german-traffic-sign"
 
 ############################################################################################
 # Compute the ROC (Receiver Operator Characteristics) for the RBF Outlier Detection Method #
 ############################################################################################
-predictions_train = np.load(os.path.join(BASEDIR_MNIST,'predictions_anomaly_train.npy'))
+predictions_train = np.load(os.path.join(BASEDIR_GTSB,'predictions_anomaly_train.npy'))
 alphas = np.linspace(0,5,30)
 results = []
 IRQS = []
