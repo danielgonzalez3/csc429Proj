@@ -45,4 +45,6 @@ WORKDIR /var/lib/model
 
 COPY . /var/lib/model
 
-RUN pip3 install -r trial_1/requirements.txt
+WORKDIR /var/lib/model
+RUN pip3 install -r requirements.txt
+RUN python3 gtsb.py
