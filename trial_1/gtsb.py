@@ -161,7 +161,7 @@ for p in probs:
   print('Test accuracy - acc_rbf_clean',acc_rbf_clean)
 
   confidence = anomaly_poison.predict(x_train_poison)
-  predictions_train[i,:,:] = confidence
+  # predictions_train[i,:,:] = confidence
   i += 1
   predictions = np.argmax(confidence,axis=1)
   labels = np.argmax(y_train_poison,axis=1)
