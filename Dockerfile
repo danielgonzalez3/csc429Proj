@@ -45,5 +45,5 @@ WORKDIR /var/lib/model
 
 COPY . /var/lib/model
 
-WORKDIR /var/lib/model/trial_1
+WORKDIR /var/lib/model/trial
 RUN pip3 install -r requirements.txt
