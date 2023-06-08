@@ -81,8 +81,11 @@ x_test_poison,y_test_poison,x_test_clean,y_test_clean,x_test_backdoor,y_test_bac
 
 img = x_train_backdoor[8]
 
-cv2.imwrite('./content/clean_german_sign.png',x_train_backdoor[8]*255)
-plt.savefig('./content/poison_german_sign.png')
+cv2.imwrite('/content/clean_german_sign.png',x_train_backdoor[8]*255)
+plt.show()
+plt.imshow(x_train_clean[8])
+plt.savefig('/content/poison_german_sign.png')
+plt.show()
 
 probs = [0.005,0.01,0.02,0.03,0.04]
 correctness_all_test_data = []
