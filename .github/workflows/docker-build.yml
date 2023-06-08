@@ -25,6 +25,5 @@ jobs:
           context: .
           push: true
           tags: dgonz212/csc429proj:latest
-        env:
-          DOCKER_USERNAME: dgonz212
-          DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          username: dgonz212
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
